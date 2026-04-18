@@ -1,0 +1,16 @@
+{
+  "device": "cpu",
+  "best_val_mse": 0.03739314153790474,
+  "model_path_best": "D:\\Masters Program 2025-2027\\Semester 1_2\\Artificial Intelligence and Large  Models\\Final  Project\\CLIMATE_XFER\\models\\sadc_mean_gru.pt",
+  "model_path_last": "D:\\Masters Program 2025-2027\\Semester 1_2\\Artificial Intelligence and Large  Models\\Final  Project\\CLIMATE_XFER\\models\\sadc_mean_gru_last.pt",
+  "history_months": 12,
+  "lead_months": 1,
+  "epochs": 40,
+  "batch_size": 32,
+  "features": [
+    "spei_mean_sadc",
+    "prcp_mean_sadc",
+    "sst_pac_mean",
+    "sst_ind_mean"
+  ]
+}

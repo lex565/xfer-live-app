@@ -1,0 +1,3 @@
+region,transfer,model,rmse,mae,corr,n,model_loaded
+SEA,finetune,sea_mean_gru_finetuned,0.23634430766105652,0.19538401067256927,0.9027836093765033,52,D:\Masters Program 2025-2027\Semester 1_2\Artificial Intelligence and Large  Models\Final  Project\CLIMATE_XFER\models\sea_mean_gru_finetuned.pt
+SEA,finetune,persistence,0.18443864423883008,0.14411758935938662,0.91724779741699,52,NA

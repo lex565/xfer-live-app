@@ -1,0 +1,14 @@
+{
+  "device": "cpu",
+  "best_val_mse": 0.5153905004262924,
+  "model_path_best": "D:\\Masters Program 2025-2027\\Semester 1_2\\Artificial Intelligence and Large  Models\\Final  Project\\CLIMATE_XFER\\models\\sadc_cnn_gru.pt",
+  "model_path_last": "D:\\Masters Program 2025-2027\\Semester 1_2\\Artificial Intelligence and Large  Models\\Final  Project\\CLIMATE_XFER\\models\\sadc_cnn_gru_last.pt",
+  "history_path": "D:\\Masters Program 2025-2027\\Semester 1_2\\Artificial Intelligence and Large  Models\\Final  Project\\CLIMATE_XFER\\reports\\train_sadc_history.json",
+  "history_months": 12,
+  "lead_months": 1,
+  "batch_size": 16,
+  "epochs": 20,
+  "hidden": 64,
+  "feat_dim": 32,
+  "note": "NaN-safe training with masked MSE on targets; inputs NaNs filled with 0."
+}

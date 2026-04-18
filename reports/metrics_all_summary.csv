@@ -1,0 +1,9 @@
+region,model,rmse,mae,corr,n,model_loaded,source_file,transfer,split,rmse_mean,mae_mean,corr_mean,n_months
+SADC,mean_gru,0.192922905087471,0.1620761603116989,0.8350134633379301,52.0,D:\Masters Program 2025-2027\Semester 1_2\Artificial Intelligence and Large  Models\Final  Project\CLIMATE_XFER\models\sadc_mean_gru.pt,metrics_sadc_mean_val.csv,,,,,,
+SADC,persistence,0.2022193281322181,0.1484126249471536,0.8068012446718241,52.0,,metrics_sadc_mean_val.csv,,,,,,
+SEA,sadc_mean_gru,0.3112691044807434,0.2524192929267883,0.8819724222284548,52.0,D:\Masters Program 2025-2027\Semester 1_2\Artificial Intelligence and Large  Models\Final  Project\CLIMATE_XFER\models\sadc_mean_gru.pt,metrics_sea_zeroshot.csv,zero_shot,,,,,
+SEA,persistence,0.18443864423883,0.1441175893593866,0.91724779741699,52.0,,metrics_sea_zeroshot.csv,zero_shot,,,,,
+SEA,sea_mean_gru_finetuned,0.2363443076610565,0.1953840106725692,0.9027836093765031,52.0,D:\Masters Program 2025-2027\Semester 1_2\Artificial Intelligence and Large  Models\Final  Project\CLIMATE_XFER\models\sea_mean_gru_finetuned.pt,metrics_sea_finetune.csv,finetune,,,,,
+SEA,persistence,0.18443864423883,0.1441175893593866,0.91724779741699,52.0,,metrics_sea_finetune.csv,finetune,,,,,
+SADC,cnn_gru,,,,,D:\Masters Program 2025-2027\Semester 1_2\Artificial Intelligence and Large  Models\Final  Project\CLIMATE_XFER\models\sadc_cnn_gru.pt,metrics_sadc_val.csv,,val_last20pct,0.2267623841762542,0.1951113492250442,0.7583204107098069,52.0
+SADC,persistence,,,,,,metrics_sadc_val.csv,,val_last20pct,0.2022193281322181,0.1484126249471536,0.8068012446718241,52.0

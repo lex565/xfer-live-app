@@ -1,0 +1,3 @@
+region,transfer,model,rmse,mae,corr,n,model_loaded
+SEA,zero_shot,sadc_mean_gru,0.3112691044807434,0.25241929292678833,0.8819724222284548,52,D:\Masters Program 2025-2027\Semester 1_2\Artificial Intelligence and Large  Models\Final  Project\CLIMATE_XFER\models\sadc_mean_gru.pt
+SEA,zero_shot,persistence,0.18443864423883008,0.14411758935938662,0.91724779741699,52,NA

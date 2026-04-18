@@ -1,0 +1,3 @@
+region,model,rmse,mae,corr,n,model_loaded
+SADC,mean_gru,0.192922905087471,0.1620761603116989,0.8350134633379301,52,D:\Masters Program 2025-2027\Semester 1_2\Artificial Intelligence and Large  Models\Final  Project\CLIMATE_XFER\models\sadc_mean_gru.pt
+SADC,persistence,0.2022193281322181,0.1484126249471536,0.8068012446718241,52,NA

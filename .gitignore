@@ -1,0 +1,10 @@
+venv_climate_xfer/
+__pycache__/
+*.pyc
+*.pyo
+data_raw/
+*.docx
+*.pdf
+~$*
+.env
+.streamlit/secrets.toml
