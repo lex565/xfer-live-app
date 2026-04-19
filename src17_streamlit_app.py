@@ -720,7 +720,7 @@ def page_hero():
 <div style="display:flex;align-items:center;justify-content:center;gap:28px;
             padding:20px 0 6px;flex-wrap:wrap;">
   <div style="width:88px;height:88px;flex-shrink:0;border-radius:50%;
-              background:url('{_LOGO_URI}') center/cover no-repeat;
+              background:url('./app/static/beihang_logo.jpg') center/cover no-repeat;
               border:2px solid rgba(0,212,255,0.45);
               box-shadow:0 0 22px rgba(0,212,255,0.35);"></div>
   <div style="text-align:left;">
@@ -2119,7 +2119,7 @@ def page_geo_scene():
             border-radius:14px;padding:12px 20px;margin-bottom:10px;
             backdrop-filter:blur(10px);">
   <div style="width:52px;height:52px;flex-shrink:0;border-radius:50%;
-              background:url('{_LOGO_URI}') center/cover no-repeat;
+              background:url('./app/static/beihang_logo.jpg') center/cover no-repeat;
               border:1.5px solid rgba(0,212,255,.4);
               box-shadow:0 0 14px rgba(0,212,255,.3);"></div>
   <div style="flex:1">
@@ -2157,7 +2157,7 @@ def sidebar() -> str:
         st.markdown(f"""
 <div style="text-align:center;padding:10px 0 16px">
   <div style="width:64px;height:64px;border-radius:50%;
-              background:url('{_LOGO_URI}') center/cover no-repeat;
+              background:url('./app/static/beihang_logo.jpg') center/cover no-repeat;
               border:1.5px solid rgba(0,212,255,0.4);
               box-shadow:0 0 14px rgba(0,212,255,0.28);
               margin:0 auto 10px auto;"></div>

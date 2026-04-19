@@ -8,3 +8,4 @@ textColor = "#e0f4ff"
 [server]
 headless = true
 enableCORS = false
+enableStaticServing = true
