@@ -145,7 +145,11 @@ ROOT    = Path(__file__).parent
 MODELS  = ROOT / "models"
 REPORTS = ROOT / "reports"
 ZARR    = str(ROOT / "data_processed" / "aligned_1deg.zarr")
-DATES   = pd.date_range("2000-01-01", periods=276, freq="MS")
+DATES     = pd.date_range("2000-01-01", periods=276, freq="MS")
+N_HIST    = 276        # Jan 2000 – Dec 2022 (training / validation)
+N_FUTURE  = 40         # Jan 2023 – Apr 2026 (simulated)
+N_TOTAL   = N_HIST + N_FUTURE
+DATES_EXT = pd.date_range("2000-01-01", periods=N_TOTAL, freq="MS")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG  — must be first Streamlit call
@@ -522,6 +526,44 @@ def load_csv_timeseries() -> dict:
     }
 
 
+@st.cache_resource
+def load_extended_series() -> dict:
+    """Historical 276 months + GRU-rolled 40-month simulation → (316, 4) each."""
+    hist = load_series()
+    mdls = load_models()
+
+    def _simulate(series: np.ndarray, model: nn.Module) -> np.ndarray:
+        full = series.copy()
+        rng  = np.random.default_rng(42)
+        for i in range(N_FUTURE):
+            cal   = DATES_EXT[N_HIST + i].month
+            same  = [j for j in range(N_HIST) if DATES_EXT[j].month == cal]
+            clim  = series[same].mean(axis=0)
+            win   = full[len(full) - 12:]
+            x     = torch.tensor(win[np.newaxis]).float()
+            with torch.no_grad():
+                spei_pred = float(model(x).item())
+            noise = rng.normal(0, 0.04 * (i + 1) / N_FUTURE, size=4).astype(np.float32)
+            row   = np.array([spei_pred, clim[1], clim[2], clim[3]], dtype=np.float32) + noise
+            full  = np.vstack([full, row])
+        return full  # (316, 4)
+
+    return {
+        "sadc": _simulate(hist["sadc"], mdls["sadc"]),
+        "sea":  _simulate(hist["sea"],  mdls["fine_tuned"]),
+    }
+
+
+def build_extended_spatial(data3d: np.ndarray) -> np.ndarray:
+    """Pad (276, lat, lon) → (316, lat, lon) using climatological monthly means."""
+    clim = np.stack([
+        data3d[[j for j in range(N_HIST) if DATES_EXT[j].month == m]].mean(axis=0)
+        for m in range(1, 13)
+    ])  # (12, lat, lon)
+    future = np.stack([clim[DATES_EXT[N_HIST + i].month - 1] for i in range(N_FUTURE)])
+    return np.concatenate([data3d, future], axis=0)
+
+
 @st.cache_data
 def load_training_history() -> dict:
     with open(REPORTS / "train_sadc_mean_history.json") as f:
@@ -534,17 +576,30 @@ def load_training_history() -> dict:
 # INFERENCE
 # ══════════════════════════════════════════════════════════════════════════════
 def run_inference(series: np.ndarray, model: nn.Module, t_target: int, history: int = 12) -> float | None:
-    t = t_target - 1
+    t = min(t_target - 1, len(series) - 1)
     if t < history - 1:
         return None
-    window = series[t - history + 1 : t + 1, :]      # (12, 4)
-    x = torch.tensor(window).unsqueeze(0).float()     # (1,12,4)
+    start  = max(0, t - history + 1)
+    window = series[start : t + 1, :]
+    if len(window) < history:
+        window = np.pad(window, ((history - len(window), 0), (0, 0)), mode="edge")
+    x = torch.tensor(window).unsqueeze(0).float()
     with torch.no_grad():
         return model(x).item()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
+def forecast_confidence(t_idx: int):
+    """Return (confidence 0-1, sigma_multiplier) for a month index."""
+    if t_idx < N_HIST:
+        return 0.85, 1.0
+    months_ahead = t_idx - N_HIST + 1
+    conf = max(0.42, 0.85 - months_ahead * 0.011)
+    sigma_mult = 1.0 + months_ahead * 0.07
+    return round(conf, 3), round(sigma_mult, 3)
+
+
 def spei_severity(val: float):
     if val >= 0:
         return "Normal / Wet", "#00ffc8", "rgba(0,255,200,.14)"
@@ -807,13 +862,14 @@ learned in one region transfer meaningfully across continents.
 # ══════════════════════════════════════════════════════════════════════════════
 def page_forecast():
     models_dict = load_models()
-    series      = load_series()
+    ext_series  = load_extended_series()
 
     st.markdown('<div class="sh">🔮  Live GRU Drought Forecast</div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="color:#7eb8d4;margin-bottom:20px;font-size:.88rem">'
-        'Select a region, model mode, and target month. The GRU loads the 12-month input window '
-        'from the processed Zarr dataset and produces a 1-month lead SPEI forecast in real time.'
+        'Select a region, model mode, and target month. Jan 2023 – Apr 2026 are '
+        '<strong style="color:#ffd700">simulated</strong> via GRU rolling forecast + '
+        'climatological inputs. Confidence decays beyond Dec 2022.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -829,16 +885,16 @@ def page_forecast():
 
         if is_sea:
             mode = st.selectbox("Model Mode", ["Zero-Shot (SADC → SEA)", "Fine-Tuned (10 epochs SEA)"])
-            arr   = series["sea"]
+            arr   = ext_series["sea"]
             model = models_dict["fine_tuned"] if "Fine" in mode else models_dict["zero_shot"]
             mode_label = "Fine-Tuned" if "Fine" in mode else "Zero-Shot"
         else:
             st.info("SADC trained model (11,777 parameters)", icon="ℹ️")
-            arr   = series["sadc"]
+            arr   = ext_series["sadc"]
             model = models_dict["sadc"]
             mode_label = "SADC Trained"
 
-        valid_labels = [DATES[i].strftime("%b %Y") for i in range(12, 276)]
+        valid_labels = [DATES_EXT[i].strftime("%b %Y") for i in range(12, N_TOTAL)]
         sel = st.select_slider("Forecast Target Month", options=valid_labels, value=valid_labels[-1])
         month_idx = 12 + valid_labels.index(sel)
 
@@ -871,9 +927,11 @@ def page_forecast():
     # ── Output ───────────────────────────────────────────────────────────────
     with col_out:
         pred        = run_inference(arr, model, month_idx)
-        observed    = float(arr[month_idx, 0])
-        persistence = float(arr[month_idx - 1, 0])
-        forecast_mo = DATES[month_idx].strftime("%B %Y")
+        observed    = float(arr[min(month_idx, N_TOTAL - 1), 0])
+        persistence = float(arr[min(month_idx - 1, N_TOTAL - 2), 0])
+        forecast_mo = DATES_EXT[month_idx].strftime("%B %Y")
+        conf, sigma_mult = forecast_confidence(month_idx)
+        is_future   = month_idx >= N_HIST
 
         if pred is None:
             sev, scol, sbg = "Insufficient History", "#7eb8d4", "rgba(126,184,212,.14)"
@@ -904,8 +962,35 @@ def page_forecast():
                 threshold=dict(line=dict(color="#ffffff", width=3), thickness=0.78, value=pred),
             ),
         ))
-        fig_gauge.update_layout(**PL, height=350)
+        fig_gauge.update_layout(**PL, height=320)
         st.plotly_chart(fig_gauge, use_container_width=True)
+
+        # ── Confidence gauge ──────────────────────────────────────────────
+        conf_color = "#00ffc8" if conf >= 0.75 else "#ffd700" if conf >= 0.60 else "#ff4757"
+        spei_sigma = round(0.193 * sigma_mult, 3)
+        fig_conf = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=round(conf * 100, 1),
+            number=dict(font=dict(size=32, color=conf_color), suffix="%"),
+            title=dict(
+                text=f"Forecast Confidence  ·  ±{spei_sigma} SPEI (1σ)"
+                     + ("  <span style='color:#ffd700'>  SIMULATED</span>" if is_future else ""),
+                font=dict(size=11, color="#e0f4ff"),
+            ),
+            gauge=dict(
+                axis=dict(range=[0, 100], tickfont=dict(size=9, color="#7eb8d4")),
+                bar=dict(color=conf_color, thickness=0.28),
+                bgcolor="rgba(5,14,31,.55)",
+                borderwidth=1, bordercolor="rgba(0,212,255,.3)",
+                steps=[
+                    dict(range=[0,  50], color="rgba(255,71,87,.18)"),
+                    dict(range=[50, 75], color="rgba(255,215,0,.14)"),
+                    dict(range=[75,100], color="rgba(0,255,200,.12)"),
+                ],
+            ),
+        ))
+        fig_conf.update_layout(**PL, height=220)
+        st.plotly_chart(fig_conf, use_container_width=True)
 
         # Severity badge
         st.markdown(
@@ -945,10 +1030,22 @@ def page_timeseries():
         "🟢  SEA — Fine-Tuned",
     ])
 
-    def ts_figure(df, pred_col, pred_label, pred_color, title, metrics):
+    def ts_figure(df, pred_col, pred_label, pred_color, title, sigma=0.193):
         fig = go.Figure()
         drought_band_traces(fig, df)
 
+        # ±1σ confidence ribbon around model prediction
+        upper = (df[pred_col] + sigma).tolist()
+        lower = (df[pred_col] - sigma).tolist()
+        fig.add_trace(go.Scatter(
+            x=df["time"].tolist() + df["time"].tolist()[::-1],
+            y=upper + lower[::-1],
+            fill="toself", fillcolor=f"rgba({int(pred_color[1:3],16)},"
+                                     f"{int(pred_color[3:5],16)},"
+                                     f"{int(pred_color[5:7],16)},0.10)",
+            line=dict(width=0), name=f"±1σ ({sigma:.3f})",
+            showlegend=True, hoverinfo="skip",
+        ))
         fig.add_trace(go.Scatter(
             x=df["time"], y=df["true"],
             name="Observed SPEI-1",
@@ -965,7 +1062,6 @@ def page_timeseries():
             line=dict(color="#ffd700", width=1.6, dash="dot"), mode="lines",
         ))
         hline_drought(fig)
-
         fig.update_layout(
             **PL, height=430,
             title=dict(text=title, font=dict(size=14)),
@@ -1013,6 +1109,52 @@ def page_timeseries():
         cb.markdown(metric_card("0.195", "MAE",  "Fine-Tuned"), unsafe_allow_html=True)
         cc.markdown(metric_card("0.903", "Pearson r", "Fine-Tuned"), unsafe_allow_html=True)
 
+    # ── Future forecast 2023-2026 ─────────────────────────────────────────────
+    st.markdown(
+        '<div class="sh" style="margin-top:28px;font-size:1.1rem">'
+        '🔭  Simulated Forecast — Jan 2023 – Apr 2026'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div style="color:#ffd700;font-size:.82rem;margin-bottom:12px">'
+        '⚠ Beyond Dec 2022 training horizon — GRU rolling forecast with climatological inputs. '
+        'Shaded band shows growing ±1σ uncertainty. For indicative purposes only.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    ext = load_extended_series()
+    fut_times_sadc = [DATES_EXT[i] for i in range(N_HIST, N_TOTAL)]
+    fut_times_sea  = fut_times_sadc
+
+    fig_fut = go.Figure()
+    for region, color, label in [
+        ("sadc", "#00d4ff", "SADC (Simulated)"),
+        ("sea",  "#00ffc8", "SEA Fine-Tuned (Simulated)"),
+    ]:
+        vals = [float(ext[region][i, 0]) for i in range(N_HIST, N_TOTAL)]
+        sigmas = [0.193 * (1.0 + (i - N_HIST + 1) * 0.07) for i in range(N_HIST, N_TOTAL)]
+        upper = [v + s for v, s in zip(vals, sigmas)]
+        lower = [v - s for v, s in zip(vals, sigmas)]
+        fig_fut.add_trace(go.Scatter(
+            x=fut_times_sadc + fut_times_sadc[::-1],
+            y=upper + lower[::-1],
+            fill="toself",
+            fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.10)",
+            line=dict(width=0), showlegend=False, hoverinfo="skip",
+        ))
+        fig_fut.add_trace(go.Scatter(
+            x=fut_times_sadc, y=vals,
+            name=label, line=dict(color=color, width=2, dash="dash"), mode="lines",
+        ))
+    hline_drought(fig_fut)
+    fig_fut.update_layout(
+        **PL, height=380,
+        xaxis=dict(**AX, title="Month"),
+        yaxis=dict(**AX, title="SPEI-1 Forecast", range=[-3, 1.8]),
+    )
+    st.plotly_chart(fig_fut, use_container_width=True)
+
     # Cross-domain comparison
     st.markdown('<div class="sh" style="margin-top:28px;font-size:1.1rem">Transfer Improvement — Side-by-Side</div>',
                 unsafe_allow_html=True)
@@ -1053,9 +1195,25 @@ The Pacific SST tab reveals El Niño/La Niña sea-surface temperature movement a
 The Indian Ocean tab shows IOD oscillation. SPEI tabs show how drought patterns develop and recede.
 </div>""", unsafe_allow_html=True)
 
-    # Every 3rd month → 92 frames (smooth + responsive)
-    t_idx    = list(range(0, 276, 3))
-    d_labels = [DATES[i].strftime("%b %Y") for i in t_idx]
+    # Extend spatial arrays with climatological simulations for 2023-2026
+    spei_sadc_ext  = build_extended_spatial(z["spei_sadc"])
+    spei_sea_ext   = build_extended_spatial(z["spei_sea"])
+    chirps_sadc_ext= build_extended_spatial(z["chirps_sadc"])
+    chirps_sea_ext = build_extended_spatial(z["chirps_sea"])
+    sst_pac_ext    = build_extended_spatial(z["sst_pac"])
+    sst_ind_ext    = build_extended_spatial(z["sst_ind"])
+
+    # Every 3rd month → ~105 frames
+    t_idx    = list(range(0, N_TOTAL, 3))
+    d_labels = [
+        DATES_EXT[i].strftime("%b %Y") + ("*" if i >= N_HIST else "")
+        for i in t_idx
+    ]
+    st.markdown(
+        '<div style="color:#ffd700;font-size:.8rem;margin-bottom:8px">'
+        '* months marked with ★ are simulated beyond Dec 2022 training data.'
+        '</div>', unsafe_allow_html=True
+    )
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "🔴  SPEI — Southern Africa",
@@ -1066,63 +1224,56 @@ The Indian Ocean tab shows IOD oscillation. SPEI tabs show how drought patterns 
     ])
 
     with tab1:
-        st.caption("SPEI-1 over SADC (5°S–35°S). Red = drought, blue = wet anomaly. "
-                   "Watch the 2019–2022 El Niño-driven drought deepen across Southern Africa.")
+        st.caption("SPEI-1 over SADC (5°S–35°S). Red = drought, blue = wet. * = simulated beyond 2022.")
         fig = animated_heatmap(
-            z["spei_sadc"], z["lat_sadc"], z["lon_sadc"],
+            spei_sadc_ext, z["lat_sadc"], z["lon_sadc"],
             t_idx, d_labels, "RdBu", -2.5, 2.5,
             "SPEI-1  |  Southern Africa (SADC)",
         )
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.caption("SPEI-1 over Southeast Asia (5°S–25°N). Observe ENSO-driven monsoon suppression "
-                   "across Cambodia, Vietnam, Indonesia, and Thailand.")
+        st.caption("SPEI-1 over Southeast Asia (5°S–25°N). * = simulated beyond 2022.")
         fig = animated_heatmap(
-            z["spei_sea"], z["lat_sea"], z["lon_sea"],
+            spei_sea_ext, z["lat_sea"], z["lon_sea"],
             t_idx, d_labels, "RdBu", -2.5, 2.5,
             "SPEI-1  |  Southeast Asia",
         )
         st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
-        st.caption("Pacific SST anomalies (20°S–20°N, full Pacific). Red = El Niño (warm) tongue; "
-                   "blue = La Niña (cool) tongue. Watch the warm pool migrate eastward during El Niño events "
-                   "(2002–03, 2009–10, 2015–16, 2018–19).")
+        st.caption("Pacific SST anomalies. Red = El Niño, blue = La Niña. * = simulated beyond 2022.")
         fig = animated_heatmap(
-            z["sst_pac"], z["lat_pac"], z["lon_pac"],
+            sst_pac_ext, z["lat_pac"], z["lon_pac"],
             t_idx, d_labels, "RdBu_r", -2.0, 2.0,
             "Pacific SST Anomaly  |  El Niño / La Niña Sea Movement",
         )
         st.plotly_chart(fig, use_container_width=True)
 
     with tab4:
-        st.caption("Indian Ocean SST anomalies (30°S–30°N, 40°E–120°E). Observe the Indian Ocean "
-                   "Dipole (IOD): positive IOD (warm west, cool east) suppresses rainfall over "
-                   "Southern Africa and the Indonesian archipelago.")
+        st.caption("Indian Ocean SST anomalies (IOD). * = simulated beyond 2022.")
         fig = animated_heatmap(
-            z["sst_ind"], z["lat_ind"], z["lon_ind"],
+            sst_ind_ext, z["lat_ind"], z["lon_ind"],
             t_idx, d_labels, "RdBu_r", -1.5, 1.5,
             "Indian Ocean SST Anomaly  |  IOD Sea Movement",
         )
         st.plotly_chart(fig, use_container_width=True)
 
     with tab5:
-        st.caption("CHIRPS v2.0 precipitation over SADC (left) and SEA (right). "
-                   "Watch seasonal rainfall pulses and interannual drought signals.")
+        st.caption("CHIRPS v2.0 precipitation. * = simulated beyond 2022.")
         tab5a, tab5b = st.tabs(["CHIRPS — SADC", "CHIRPS — SEA"])
         with tab5a:
             fig_r = animated_heatmap(
-                z["chirps_sadc"], z["lat_sadc"], z["lon_sadc"],
+                chirps_sadc_ext, z["lat_sadc"], z["lon_sadc"],
                 t_idx, d_labels, "Blues", 0, 250,
-                "CHIRPS Precipitation  |  Southern Africa (mm/month, area-mean standardised)",
+                "CHIRPS Precipitation  |  Southern Africa (mm/month)",
             )
             st.plotly_chart(fig_r, use_container_width=True)
         with tab5b:
             fig_r2 = animated_heatmap(
-                z["chirps_sea"], z["lat_sea"], z["lon_sea"],
+                chirps_sea_ext, z["lat_sea"], z["lon_sea"],
                 t_idx, d_labels, "Blues", 0, 400,
-                "CHIRPS Precipitation  |  Southeast Asia (mm/month, area-mean standardised)",
+                "CHIRPS Precipitation  |  Southeast Asia (mm/month)",
             )
             st.plotly_chart(fig_r2, use_container_width=True)
 
@@ -1453,11 +1604,13 @@ canvas.sst-canvas { width:100%; height:100%; display:block; }
   <!-- Controls -->
   <div id="ctrl">
     <button id="play-btn">&#9654;&nbsp; Play</button>
-    <input type="range" id="month-slider" min="0" max="275" value="275" step="1">
-    <span id="month-label">Dec 2022</span>
+    <input type="range" id="month-slider" min="0" max="315" value="315" step="1">
+    <span id="month-label">Apr 2026</span>
     <span class="badge" id="sadc-badge">SADC</span>
     <span class="badge" id="sea-badge">SEA</span>
     <span id="enso-badge">ENSO: neutral</span>
+    <span id="sim-badge" style="display:none;padding:2px 10px;border-radius:14px;font-size:.68rem;font-weight:700;letter-spacing:.6px;border:1px solid rgba(168,85,247,.6);color:#d8b4fe;background:rgba(168,85,247,.12);">&#x1F52E; SIMULATED</span>
+    <span id="conf-label" style="display:none;font-size:.68rem;color:#a78bfa;font-weight:600;"></span>
   </div>
 
   <!-- Maps -->
@@ -1592,7 +1745,9 @@ const seaMap = new mapboxgl.Map({
   pitch: 35,
 });
 
-let globeReady = false, sadcReady = false, seaReady = false, curIdx = 275;
+const N_HIST_JS = 276;   // Jan 2000 – Dec 2022 (historical boundary)
+const N_TOTAL_JS = 316;  // Jan 2000 – Apr 2026 (full extended range)
+let globeReady = false, sadcReady = false, seaReady = false, curIdx = 315;
 
 // ── Slow cinematic auto-rotation ─────────────────────────────
 let autoRotate = true, lastRafTs = 0;
@@ -1730,6 +1885,21 @@ function updateAll(idx) {
 
   document.getElementById('month-label').textContent = DATES[idx];
 
+  // Simulated period indicator
+  const isSim = idx >= N_HIST_JS;
+  const simBadge = document.getElementById('sim-badge');
+  const confLbl  = document.getElementById('conf-label');
+  if (isSim) {
+    const mAhead = idx - N_HIST_JS + 1;
+    const conf = Math.max(0.42, 0.85 - mAhead * 0.011);
+    simBadge.style.display = 'inline';
+    confLbl.style.display  = 'inline';
+    confLbl.textContent    = 'Confidence: ' + Math.round(conf * 100) + '%';
+  } else {
+    simBadge.style.display = 'none';
+    confLbl.style.display  = 'none';
+  }
+
   if (sadcReady && sadcMap.getLayer('sadc-fill')) {
     sadcMap.setPaintProperty('sadc-fill',   'fill-color', speiCol(speiS));
     sadcMap.setPaintProperty('sadc-fill-glow', 'line-color', speiCol(speiS));
@@ -1807,7 +1977,7 @@ function drawSST(id, ci, series) {
   ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, barH); ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(126,184,212,0.7)'; ctx.font = '7.5px Inter,sans-serif';
-  [2000,2002,2004,2006,2008,2010,2012,2014,2016,2018,2020,2022].forEach(yr => {
+  [2000,2002,2004,2006,2008,2010,2012,2014,2016,2018,2020,2022,2024,2026].forEach(yr => {
     const xi = Math.round(((yr - 2000) * 12) * W / N);
     if (xi > 10 && xi < W - 15) ctx.fillText(yr, xi, H - 2);
   });
@@ -1862,7 +2032,7 @@ document.getElementById('play-btn').addEventListener('click', function() {
   this.textContent = playing ? '\u23F8  Pause' : '\u25B6  Play';
   if (playing) {
     playTimer = setInterval(() => {
-      const n = (curIdx + 1) % 276;
+      const n = (curIdx + 1) % N_TOTAL_JS;
       slider.value = n; updateAll(n);
     }, 1500);
   } else {
@@ -1870,11 +2040,13 @@ document.getElementById('play-btn').addEventListener('click', function() {
   }
 });
 
-// ── Boot ─────────────────────────────────────────────────────
+// ── Boot — jump to current month (Apr 2026) ──────────────────
 setTimeout(() => {
   new Rain('rain-sadc', () => rIntS);
   new Rain('rain-sea',  () => rIntE);
-  updateAll(275);
+  const startIdx = N_TOTAL_JS - 1;
+  slider.value = startIdx;
+  updateAll(startIdx);
 }, 600);
 </script>
 </body>
@@ -1897,9 +2069,36 @@ def load_geo_series() -> dict:
     }
 
 
+@st.cache_resource
+def load_geo_series_extended() -> dict:
+    """Geo scene scalar series extended to Apr 2026 via GRU simulation.
+    Reuses load_extended_series() for SPEI (col 0) to avoid feature-shape mismatch."""
+    gs  = load_geo_series()     # historical scalars (276,)
+    ext = load_extended_series()  # {"sadc":(316,4), "sea":(316,4)}
+
+    def _extend_scalar(hist: np.ndarray) -> np.ndarray:
+        rng = np.random.default_rng(99)
+        out = list(hist)
+        for i in range(N_FUTURE):
+            cal  = DATES_EXT[N_HIST + i].month
+            same = [hist[j] for j in range(N_HIST) if DATES_EXT[j].month == cal]
+            clim = float(np.mean(same))
+            out.append(np.float32(clim + rng.normal(0, abs(clim) * 0.03 + 0.01)))
+        return np.array(out, dtype=np.float32)
+
+    return {
+        "spei_sadc":   ext["sadc"][:, 0].astype(np.float32),
+        "spei_sea":    ext["sea"][:, 0].astype(np.float32),
+        "chirps_sadc": _extend_scalar(gs["chirps_sadc"]),
+        "chirps_sea":  _extend_scalar(gs["chirps_sea"]),
+        "sst_pac":     _extend_scalar(gs["sst_pac"]),
+        "sst_ind":     _extend_scalar(gs["sst_ind"]),
+    }
+
+
 def build_geo_html(token: str) -> str:
-    gs = load_geo_series()
-    d_labels = [d.strftime("%b %Y") for d in DATES]
+    gs = load_geo_series_extended()
+    d_labels = [d.strftime("%b %Y") for d in DATES_EXT]
     return (
         _GEO_TEMPLATE
         .replace("__SPEI_SADC__",   json.dumps([round(float(v), 4) for v in gs["spei_sadc"]]))
@@ -1932,9 +2131,9 @@ def page_geo_scene():
       CLIMATE-XFER &nbsp;·&nbsp; Live Geographical Scene
     </div>
     <div style="color:#7eb8d4;font-size:.78rem;margin-top:2px;">
-      Globe rotates automatically · Satellite imagery · Hollow SPEI borders ·
+      Globe rotates automatically · Topographic basemap · Hollow SPEI borders ·
       Rain density = CHIRPS · Press
-      <strong style="color:#00d4ff">▶ Play</strong> to animate 2000–2022
+      <strong style="color:#00d4ff">▶ Play</strong> to animate 2000–2026 (★ = simulated)
     </div>
   </div>
   <div style="font-size:.72rem;color:#7eb8d4;text-align:right;line-height:1.7">
