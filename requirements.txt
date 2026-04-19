@@ -1,7 +1,7 @@
 numpy
 pandas
 xarray
-zarr<3
+zarr
 dask
 torch
 plotly
