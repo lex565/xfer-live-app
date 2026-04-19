@@ -719,10 +719,10 @@ def page_hero():
     st.markdown(f"""
 <div style="display:flex;align-items:center;justify-content:center;gap:28px;
             padding:20px 0 6px;flex-wrap:wrap;">
-  <img src="{_LOGO_URI}"
-       style="height:88px;border-radius:50%;
+  <div style="width:88px;height:88px;flex-shrink:0;border-radius:50%;
+              background:url('{_LOGO_URI}') center/cover no-repeat;
               border:2px solid rgba(0,212,255,0.45);
-              box-shadow:0 0 22px rgba(0,212,255,0.35);">
+              box-shadow:0 0 22px rgba(0,212,255,0.35);"></div>
   <div style="text-align:left;">
     <div class="hero-title" style="text-align:left;font-size:3.2rem;">CLIMATE-XFER</div>
     <div class="hero-sub" style="text-align:left;">
@@ -2118,10 +2118,10 @@ def page_geo_scene():
             background:rgba(2,8,18,.78);border:1px solid rgba(0,212,255,.22);
             border-radius:14px;padding:12px 20px;margin-bottom:10px;
             backdrop-filter:blur(10px);">
-  <img src="{_LOGO_URI}"
-       style="height:52px;border-radius:50%;
+  <div style="width:52px;height:52px;flex-shrink:0;border-radius:50%;
+              background:url('{_LOGO_URI}') center/cover no-repeat;
               border:1.5px solid rgba(0,212,255,.4);
-              box-shadow:0 0 14px rgba(0,212,255,.3);">
+              box-shadow:0 0 14px rgba(0,212,255,.3);"></div>
   <div style="flex:1">
     <div style="font-size:1.15rem;font-weight:800;
                 background:linear-gradient(90deg,#00d4ff,#00ffc8);
@@ -2156,11 +2156,11 @@ def sidebar() -> str:
     with st.sidebar:
         st.markdown(f"""
 <div style="text-align:center;padding:10px 0 16px">
-  <img src="{_LOGO_URI}"
-       style="height:64px;border-radius:50%;
+  <div style="width:64px;height:64px;border-radius:50%;
+              background:url('{_LOGO_URI}') center/cover no-repeat;
               border:1.5px solid rgba(0,212,255,0.4);
               box-shadow:0 0 14px rgba(0,212,255,0.28);
-              margin-bottom:10px;display:block;margin-left:auto;margin-right:auto;">
+              margin:0 auto 10px auto;"></div>
   <div style="font-size:1.7rem;font-weight:900;
               background:linear-gradient(135deg,#00d4ff,#00ffc8);
               -webkit-background-clip:text;-webkit-text-fill-color:transparent;
