@@ -904,7 +904,7 @@ def page_forecast():
         t_end   = month_idx - 1
         t_start = t_end - 12 + 1
         window  = arr[t_start : t_end + 1, :]
-        inp_labels = [DATES[t_start + i].strftime("%b %Y") for i in range(12)]
+        inp_labels = [DATES_EXT[t_start + i].strftime("%b %Y") for i in range(12)]
 
         fig_inp = go.Figure()
         feat_names  = ["SPEI-1", "CHIRPS Precip", "Pacific SST", "Indian Ocean SST"]
@@ -1075,7 +1075,6 @@ def page_timeseries():
             ts["sadc"], "pred_mean_gru",
             "Mean-GRU  (r = 0.835)",  "#00ffc8",
             "SADC Validation — Mean-GRU vs Persistence  (RMSE = 0.193 vs 0.202)",
-            {},
         )
         st.plotly_chart(fig1, use_container_width=True)
         ca, cb, cc = st.columns(3)
@@ -1088,7 +1087,7 @@ def page_timeseries():
             ts["sea_zs"], "pred_zeroshot",
             "Zero-Shot Transfer  (r = 0.882)", "#a855f7",
             "SEA Zero-Shot Transfer — SADC Weights Applied Directly  (RMSE = 0.311)",
-            {},
+            0.311,
         )
         st.plotly_chart(fig2, use_container_width=True)
         ca, cb, cc = st.columns(3)
@@ -1101,7 +1100,7 @@ def page_timeseries():
             ts["sea_ft"], "pred_finetuned",
             "Fine-Tuned  (r = 0.903)", "#00ffc8",
             "SEA Fine-Tuned — 10-Epoch Adaptation from SADC Checkpoint  (RMSE = 0.236)",
-            {},
+            0.236,
         )
         st.plotly_chart(fig3, use_container_width=True)
         ca, cb, cc = st.columns(3)
